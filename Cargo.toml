@@ -5,9 +5,7 @@ authors = ["Erutuon <5840197+Erutuon@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
-parse-mediawiki-sql = "0.4.0"
-memmap = "0.7.0"
-pico-args = "0.3"
+parse-mediawiki-sql = { version = "0.6", features = ["utils"] }
+pico-args = "0.4"
 anyhow = "1.0.33"
-thiserror = "1.0.21"
-unicase = "2.6.0"
+unicase = "2.6"
