@@ -5,9 +5,14 @@ use std::{
 };
 
 use parse_mediawiki_sql::{
-    field_types::PageNamespace, schemas::Page, schemas::TemplateLink, utils::memory_map,
+    field_types::PageNamespace, iterate_sql_insertions, schemas::Page, schemas::TemplateLink,
+    utils::memory_map,
 };
 use unicase::UniCase;
+
+const MAIN_NAMESPACE: PageNamespace = PageNamespace(0);
+const TEMPLATE_NAMESPACE: PageNamespace = PageNamespace(10);
+const RECONSTRUCTION_NAMESPACE: PageNamespace = PageNamespace(118);
 
 fn main() -> anyhow::Result<()> {
     let mut args = pico_args::Arguments::from_env();
@@ -20,48 +25,55 @@ fn main() -> anyhow::Result<()> {
     };
     let page_sql = get_mmap_from_args(["-p", "--page"], "page.sql")?;
     let template_links_sql = get_mmap_from_args(["-t", "--template-links"], "templatelinks.sql")?;
-    let template_titles: Set<_> = parse_mediawiki_sql::iterate_sql_insertions(&page_sql)
+
+    let (template_titles, entry_ids) = iterate_sql_insertions(&page_sql).fold(
+        (Set::new(), Set::new()),
+        |(mut titles, mut ids),
+         Page {
+             id,
+             namespace,
+             title,
+             ..
+         }| {
+            if namespace == TEMPLATE_NAMESPACE {
+                titles.insert(title.into_inner());
+            } else if namespace == MAIN_NAMESPACE || namespace == RECONSTRUCTION_NAMESPACE {
+                ids.insert(id);
+            }
+            (titles, ids)
+        },
+    );
+    let mut wanted_template_counts = iterate_sql_insertions(&template_links_sql)
         .filter_map(
-            |Page {
-                 namespace, title, ..
+            |TemplateLink {
+                 from,
+                 namespace,
+                 title,
+                 ..
              }| {
-                if namespace == PageNamespace(10) {
-                    Some(title.into_inner())
+                // Not Template:tracking or a subpage of it.
+                let title = title.into_inner();
+                if namespace == TEMPLATE_NAMESPACE
+                    && !(title.starts_with("tracking") || template_titles.contains(&title))
+                    && entry_ids.contains(&from)
+                {
+                    Some(UniCase::new(title))
                 } else {
                     None
                 }
             },
         )
-        .collect();
-    let mut wanted_template_counts =
-        parse_mediawiki_sql::iterate_sql_insertions(&template_links_sql)
-            .filter_map(
-                |TemplateLink {
-                     namespace, title, ..
-                 }| {
-                    // Not Template:tracking or a subpage of it.
-                    let title = title.into_inner();
-                    if namespace == PageNamespace(10)
-                        && !title.starts_with("tracking")
-                        && !template_titles.contains(&title)
-                    {
-                        Some(UniCase::new(title))
-                    } else {
-                        None
-                    }
-                },
-            )
-            .fold(Map::new(), |mut counts, title| {
-                *counts.entry(title).or_insert(0usize) += 1;
-                counts
-            })
-            .into_iter()
-            .collect::<Vec<_>>();
+        .fold(Map::new(), |mut counts, title| {
+            *counts.entry(title).or_insert(0usize) += 1;
+            counts
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
     wanted_template_counts.sort_by(|(title1, count1), (title2, count2)| {
         count1
-            .cmp(&count2)
+            .cmp(count2)
             .reverse()
-            .then_with(|| title1.cmp(&title2))
+            .then_with(|| title1.cmp(title2))
     });
     for (mut title, count) in wanted_template_counts {
         // This does not violate `String`'s invariants because it only replaces ASCII bytes with ASCII bytes.
