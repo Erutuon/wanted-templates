@@ -63,7 +63,16 @@ fn main() -> anyhow::Result<()> {
             .reverse()
             .then_with(|| title1.cmp(&title2))
     });
-    for (title, count) in wanted_template_counts {
+    for (mut title, count) in wanted_template_counts {
+        // This does not violate `String`'s invariants because it only replaces ASCII bytes with ASCII bytes.
+        unsafe {
+            let title = title.as_bytes_mut();
+            for b in title {
+                if *b == b'_' {
+                    *b = b' ';
+                }
+            }
+        }
         println!("{}\t{}", title, count);
     }
     Ok(())
