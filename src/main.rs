@@ -17,7 +17,6 @@ const RECONSTRUCTION_NAMESPACE: PageNamespace = PageNamespace(118);
 fn main() -> anyhow::Result<()> {
     let mut args = pico_args::Arguments::from_env();
     let mut get_mmap_from_args = |keys, default: &str| {
-        #[allow(clippy::redundant_closure)]
         let path = args
             .value_from_os_str(keys, |opt| PathBuf::try_from(opt))
             .unwrap_or_else(|_| default.into());
