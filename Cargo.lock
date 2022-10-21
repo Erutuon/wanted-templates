@@ -187,9 +187,9 @@ dependencies = [
 
 [[package]]
 name = "parse-mediawiki-sql"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa304484e95def9520d2ecf455956886a14371935fb2fb8b55adc0e4e561d9b3"
+checksum = "e834fb2f3070ff545ef64e0d20b76599853e93656302a3f5c5038dc6a163bbbc"
 dependencies = [
  "bstr",
  "chrono",

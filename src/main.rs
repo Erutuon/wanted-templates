@@ -5,7 +5,9 @@ use std::{
 };
 
 use parse_mediawiki_sql::{
-    field_types::PageNamespace, iterate_sql_insertions, schemas::Page, schemas::TemplateLink,
+    field_types::{LinkTargetId, PageNamespace, PageTitle},
+    iterate_sql_insertions,
+    schemas::{LinkTarget, Page, TemplateLink},
     utils::memory_map,
 };
 use unicase::UniCase;
@@ -24,6 +26,7 @@ fn main() -> anyhow::Result<()> {
     };
     let page_sql = get_mmap_from_args(["-p", "--page"], "page.sql")?;
     let template_links_sql = get_mmap_from_args(["-t", "--template-links"], "templatelinks.sql")?;
+    let link_target_sql = get_mmap_from_args(["-l", "--link-target"], "linktarget.sql")?;
 
     let (template_titles, entry_ids) = iterate_sql_insertions(&page_sql).fold(
         (Set::new(), Set::new()),
@@ -42,26 +45,34 @@ fn main() -> anyhow::Result<()> {
             (titles, ids)
         },
     );
-    let mut wanted_template_counts = iterate_sql_insertions(&template_links_sql)
-        .filter_map(
-            |TemplateLink {
-                 from,
+    let template_link_targets: Map<LinkTargetId, String> = iterate_sql_insertions(&link_target_sql)
+        .filter(
+            |LinkTarget {
                  namespace,
-                 title,
+                 title: PageTitle(title),
                  ..
              }| {
-                // Not Template:tracking or a subpage of it.
-                let title = title.into_inner();
-                if namespace == TEMPLATE_NAMESPACE
-                    && !(title.starts_with("tracking") || template_titles.contains(&title))
-                    && entry_ids.contains(&from)
-                {
-                    Some(UniCase::new(title))
-                } else {
-                    None
-                }
+                // Requirements of the link targets that we are interested in:
+                // 1. they are template titles,
+                // 2. they aren't Template:tracking or a subpage of it,
+                // 3. the page for the title doesn't exist.
+                *namespace == TEMPLATE_NAMESPACE
+                    && !((title.starts_with("tracking")
+                        && (title.len() == "tracking".len()
+                            || title.get("tracking".len().."tracking".len() + 1) == Some("/")))
+                        || template_titles.contains(title))
             },
         )
+        .map(|LinkTarget { id, title, .. }| (id, title.into_inner()))
+        .collect();
+    let mut wanted_template_counts = iterate_sql_insertions(&template_links_sql)
+        .filter(|TemplateLink { from, .. }| entry_ids.contains(from))
+        .filter_map(|TemplateLink { target_id, .. }| {
+            template_link_targets
+                .get(&target_id)
+                .cloned()
+                .map(UniCase::new)
+        })
         .fold(Map::new(), |mut counts, title| {
             *counts.entry(title).or_insert(0usize) += 1;
             counts
